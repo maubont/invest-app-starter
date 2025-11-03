@@ -1,0 +1,4 @@
+fastapi>=0.110,<0.115
+uvicorn[standard]>=0.30,<0.31
+numpy>=1.26,<2.0
+numpy-financial>=1.0,<2.0
