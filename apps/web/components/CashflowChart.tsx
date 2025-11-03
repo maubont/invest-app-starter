@@ -1,47 +1,76 @@
-﻿import React from "react";
-import { Line } from "react-chartjs-2";
+import React from "react";
 import {
-  Chart,
-  LineElement,
-  PointElement,
-  LinearScale,
-  CategoryScale,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
   Tooltip,
-  Legend,
-} from "chart.js";
+  XAxis,
+  YAxis,
+} from "recharts";
 
-Chart.register(LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+type Props = {
+  years: number[];
+  cashflows: number[];
+  currency?: string;
+  locale?: string;
+};
 
-type Props = { years: number[]; cashflows: number[] };
+const formatCompactMoney = (value: number, locale = "es-CO", currency = "COP") => {
+  const formatted = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    notation: "compact",
+    maximumFractionDigits: 1,
+    compactDisplay: "short",
+  }).format(value);
 
-export default function CashflowChart({ years, cashflows }: Props) {
-  if (!years?.length || !cashflows?.length) return null;
+  if (value > 0 && !formatted.startsWith("+")) {
+    return `+${formatted}`;
+  }
 
-  const data = {
-    labels: years,
-    datasets: [
-      {
-        label: "Flujo de caja",
-        data: cashflows,
-        borderWidth: 2,
-        tension: 0.2,
-      },
-    ],
-  };
+  return formatted;
+};
 
-  const options = {
-    responsive: true,
-    interaction: { mode: "index" as const, intersect: false },
-    plugins: { legend: { display: false } },
-    scales: {
-      y: { ticks: { callback: (v: any) => Number(v).toLocaleString("es-CO") } },
-    },
-  };
+export default function CashflowChart({ years, cashflows, currency = "COP", locale = "es-CO" }: Props) {
+  if (!years?.length || !cashflows?.length) {
+    return null;
+  }
+
+  const data = years.map((year, index) => ({
+    year,
+    cashflow: Number.isFinite(cashflows[index]) ? cashflows[index] : 0,
+  }));
 
   return (
-    <div className="rounded-2xl border bg-white shadow p-4">
-      <h3 className="text-sm text-gray-600 mb-2">Flujo de caja (por año)</h3>
-      <Line data={data} options={options} />
+    <div className="rounded-2xl border bg-white p-4 shadow">
+      <h3 className="mb-2 text-sm text-gray-600">Flujo de caja (por año)</h3>
+      <div className="h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 12, right: 24, bottom: 8, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+            <XAxis dataKey="year" tickLine={false} axisLine={false} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(value: number) => formatCompactMoney(value, locale, currency)}
+            />
+            <Tooltip
+              formatter={(value: number) => formatCompactMoney(value, locale, currency)}
+              labelFormatter={(value: number) => `Año ${value}`}
+              contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
+            />
+            <Line
+              type="monotone"
+              dataKey="cashflow"
+              stroke="#0f172a"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
