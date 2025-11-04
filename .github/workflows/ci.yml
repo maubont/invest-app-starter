@@ -52,7 +52,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
       - name: Ruff
-        run: ruff .
+        run: ruff check .
       - name: Black
         run: black --check .
       - name: Uvicorn smoke test

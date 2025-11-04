@@ -18,6 +18,8 @@ type RunResponse = {
   years: number[];
 };
 
+// ---------- Modelo de entradas, validación y presets ----------
+
 type Inputs = {
   price: number;
   volume: number;
@@ -46,14 +48,12 @@ const LIMITS = {
 const DEFAULT_PRESET: PresetKey = "base";
 const DEFAULT_INPUTS = PRESETS.base;
 
-const matchesPreset = (a: Inputs, b: Inputs) =>
+const isSamePreset = (a: Inputs, b: Inputs) =>
   a.price === b.price && a.volume === b.volume && Math.abs(a.wacc - b.wacc) < 1e-6;
 
 const detectPresetFromInputs = (values: Inputs): PresetKey => {
   for (const key of Object.keys(PRESETS) as Array<keyof typeof PRESETS>) {
-    if (matchesPreset(values, PRESETS[key])) {
-      return key;
-    }
+    if (isSamePreset(values, PRESETS[key])) return key;
   }
   return "custom";
 };
@@ -64,45 +64,43 @@ const validateInputs = (values: Inputs): ValidationResult => {
   if (values.price < LIMITS.price.min || values.price > LIMITS.price.max) {
     errors.price = `Fuera de rango (min ${LIMITS.price.min}, max ${LIMITS.price.max})`;
   }
-
   if (values.volume < LIMITS.volume.min || values.volume > LIMITS.volume.max) {
     errors.volume = `Fuera de rango (min ${LIMITS.volume.min}, max ${LIMITS.volume.max})`;
   }
-
   if (values.wacc < LIMITS.wacc.min || values.wacc > LIMITS.wacc.max) {
     errors.wacc = `Fuera de rango (min ${LIMITS.wacc.min}, max ${LIMITS.wacc.max})`;
   }
 
-  return {
-    ok: Object.keys(errors).length === 0,
-    errors,
-  };
+  return { ok: Object.keys(errors).length === 0, errors };
 };
+
+// ---------- Página ----------
 
 type Status = "idle" | "loading" | "success" | "error" | "invalid";
 
 export default function Home() {
+  // Estado con persistencia
   const [inputs, setInputs] = useLocalStorage<Inputs>("invest-ui:inputs", DEFAULT_INPUTS);
   const [preset, setPreset] = useLocalStorage<PresetKey>("invest-ui:preset", DEFAULT_PRESET);
+
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [result, setResult] = useState<RunResponse | null>(null);
   const abortController = useRef<AbortController | null>(null);
+
+  // Hidratar para evitar diferencias SSR/CSR en Next
   const [hydrated, setHydrated] = useState(false);
   const [initialised, setInitialised] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+    if (typeof window === "undefined") return;
     const id = window.setTimeout(() => setHydrated(true), 0);
     return () => window.clearTimeout(id);
   }, []);
 
+  // Primera pasada: si inputs inválidos, volver a DEFAULT; si no, detectar preset
   useEffect(() => {
-    if (!hydrated || initialised) {
-      return;
-    }
+    if (!hydrated || initialised) return;
 
     const validation = validateInputs(inputs);
     if (!validation.ok) {
@@ -117,48 +115,44 @@ export default function Home() {
   const validation = useMemo(() => validateInputs(inputs), [inputs]);
   const isValid = validation.ok;
 
+  // Llamada al engine
   const run = useCallback(async (current: Inputs) => {
-      abortController.current?.abort();
-      const controller = new AbortController();
-      abortController.current = controller;
+    abortController.current?.abort();
+    const controller = new AbortController();
+    abortController.current = controller;
 
-      setStatus("loading");
-      setErrorMessage(null);
+    setStatus("loading");
+    setErrorMessage(null);
 
-      try {
-        const res = await fetch(`${ENGINE_URL}/run`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            project: {
-              price: current.price,
-              volume: current.volume,
-              wacc: current.wacc,
-            },
-          }),
-          signal: controller.signal,
-        });
+    try {
+      const res = await fetch(`${ENGINE_URL}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project: {
+            price: current.price,
+            volume: current.volume,
+            wacc: current.wacc,
+          },
+        }),
+        signal: controller.signal,
+      });
 
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const data: RunResponse = await res.json();
-        setResult(data);
-        setStatus("success");
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setErrorMessage(error instanceof Error ? error.message : "Error inesperado");
-        setStatus("error");
-      }
-    }, []);
-
-  useEffect(() => {
-    if (!hydrated || !initialised) {
-      return;
+      const data: RunResponse = await res.json();
+      setResult(data);
+      setStatus("success");
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setErrorMessage(error instanceof Error ? error.message : "Error inesperado");
+      setStatus("error");
     }
+  }, []);
+
+  // Recalcular con debounce si los inputs cambian
+  useEffect(() => {
+    if (!hydrated || !initialised) return;
 
     if (!isValid) {
       abortController.current?.abort();
@@ -179,6 +173,7 @@ export default function Home() {
   const summary = useMemo(() => result?.summary ?? null, [result]);
   const showEmpty = status === "idle" && !summary;
 
+  // Helpers UI
   const applyPreset = useCallback(
     (key: Exclude<PresetKey, "custom">) => {
       const presetValues = PRESETS[key];
@@ -190,9 +185,7 @@ export default function Home() {
 
   const handlePresetChange = useCallback(
     (key: PresetKey) => {
-      if (key === "custom") {
-        return;
-      }
+      if (key === "custom") return;
       applyPreset(key);
     },
     [applyPreset]
@@ -201,8 +194,7 @@ export default function Home() {
   const updateInput = useCallback(
     (key: keyof Inputs, value: number) => {
       setInputs((prev) => {
-        const nextValue =
-          key === "wacc" ? Number(value.toFixed(3)) : Math.round(value);
+        const nextValue = key === "wacc" ? Number(value.toFixed(3)) : Math.round(value);
         const next = { ...prev, [key]: nextValue };
         const detected = detectPresetFromInputs(next);
         setPreset(detected);
@@ -222,6 +214,7 @@ export default function Home() {
       <section className="grid items-start gap-6 md:grid-cols-2">
         <div className="space-y-5 rounded-2xl border bg-white p-5 shadow">
           <PresetSelect value={preset} onChange={handlePresetChange} />
+
           <Control
             name="price"
             label="Precio"
@@ -288,9 +281,7 @@ export default function Home() {
             </div>
           )}
 
-          {result && (
-            <CashflowChart years={result.years} cashflows={result.cashflows} />
-          )}
+          {result && <CashflowChart years={result.years} cashflows={result.cashflows} />}
 
           {result && (
             <pre className="overflow-auto rounded-2xl bg-slate-900 p-4 text-xs text-emerald-300">
@@ -314,6 +305,8 @@ export default function Home() {
     </main>
   );
 }
+
+// ---------- Control (slider) ----------
 
 type ControlProps = {
   name: keyof Inputs;
@@ -372,3 +365,4 @@ function Control({
     </label>
   );
 }
+
