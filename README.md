@@ -39,6 +39,12 @@ Existe un `docker-compose` de referencia en [`infra/docker-compose.yml`](infra/d
 - `apps/web/.env.local`: valores públicos para el frontend (por ejemplo `NEXT_PUBLIC_ENGINE_URL`).
 - `services/engine/.env`: valores privados para el engine (por ejemplo claves de terceros). Ambos archivos están ignorados en git por defecto.
 
+## Presets y validación
+La pantalla principal de la web permite seleccionar presets de entradas (Conservador, Base, Agresivo) o trabajar con un modo personalizado.
+
+- Los rangos soportados son: precio `10 – 500`, volumen `100 – 2000` y WACC `0.05 – 0.25`. Si alguno queda fuera, los controles se marcan en rojo y no se dispara el cálculo contra el engine.
+- La última selección y los valores válidos se almacenan en `localStorage` bajo las claves `invest-ui:preset` e `invest-ui:inputs`, por lo que al recargar se recupera el estado previo siempre que respete los rangos.
+
 ## Calidad de código
 ### Frontend
 ```bash

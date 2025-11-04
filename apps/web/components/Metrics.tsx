@@ -1,5 +1,3 @@
-import React from "react";
-
 type MetricState = "positive" | "negative" | "unknown";
 
 type Props = {
@@ -9,15 +7,22 @@ type Props = {
   wacc?: number | null;
   currency?: string;
   locale?: string;
+  /** true cuando hay entradas fuera de rango (no se dispara el cálculo) */
+  invalid?: boolean;
 };
 
 const isNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
-const formatMoney = (value?: number | null, locale = "es-CO", currency = "COP") => {
+const formatMoney = (
+  value?: number | null,
+  locale = "es-CO",
+  currency = "COP"
+) => {
   if (!isNumber(value)) return "—";
 
   const absolute = Math.abs(value);
+  // Muestra compacto (k, M) para valores grandes
   if (absolute >= 1_000_000) {
     return new Intl.NumberFormat(locale, {
       style: "currency",
@@ -27,11 +32,23 @@ const formatMoney = (value?: number | null, locale = "es-CO", currency = "COP") 
       compactDisplay: "short",
     }).format(value);
   }
-
   return new Intl.NumberFormat(locale, {
     style: "currency",
     currency,
     maximumFractionDigits: absolute < 1_000 ? 0 : 1,
+  }).format(value);
+};
+
+const formatFullMoney = (
+  value?: number | null,
+  locale = "es-CO",
+  currency = "COP"
+) => {
+  if (!isNumber(value)) return "—";
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
   }).format(value);
 };
 
@@ -53,19 +70,13 @@ const resolveState = ({
   value?: number | null;
   threshold?: number | null;
 }): MetricState => {
-  if (!isNumber(value)) {
-    return "unknown";
-  }
-
-  if (kind === "van") {
-    return value > 0 ? "positive" : "negative";
-  }
-
+  if (!isNumber(value)) return "unknown";
+  if (kind === "van") return value > 0 ? "positive" : "negative";
   if (kind === "tir") {
     if (!isNumber(threshold)) return "negative";
     return value > threshold ? "positive" : "negative";
   }
-
+  // payback
   return value >= 0 ? "positive" : "negative";
 };
 
@@ -88,13 +99,19 @@ export default function Metrics({
   wacc,
   currency = "COP",
   locale = "es-CO",
+  invalid = false,
 }: Props) {
+  // VAN: valor “compacto” visible + valor completo para tooltip
+  const vanDisplay = formatMoney(van, locale, currency);
+  const vanFull = formatFullMoney(van, locale, currency);
+
   const metrics = [
     {
       key: "van",
       title: "VAN",
       description: "Valor Actual Neto",
-      value: formatMoney(van, locale, currency),
+      value: vanDisplay,
+      tooltip: vanDisplay === vanFull ? undefined : vanFull,
       state: resolveState({ kind: "van", value: van }),
       titleId: "metric-van",
     },
@@ -103,6 +120,7 @@ export default function Metrics({
       title: "TIR",
       description: "Tasa Interna de Retorno",
       value: formatPercentage(tir),
+      tooltip: undefined,
       state: resolveState({ kind: "tir", value: tir, threshold: wacc ?? null }),
       titleId: "metric-tir",
     },
@@ -111,6 +129,7 @@ export default function Metrics({
       title: "Payback",
       description: "Periodo de recuperación",
       value: formatPayback(paybackYears),
+      tooltip: undefined,
       state: resolveState({ kind: "payback", value: paybackYears ?? null }),
       titleId: "metric-payback",
     },
@@ -118,34 +137,48 @@ export default function Metrics({
 
   return (
     <div className="grid gap-4 sm:grid-cols-3">
-      {metrics.map(({ key, title, description, value, state, titleId }) => (
+      {metrics.map(({ key, title, description, value, tooltip, state, titleId }) => (
         <article
           key={key}
           aria-labelledby={titleId}
           aria-describedby={`${titleId}-desc`}
-          className="min-w-0 rounded-2xl border bg-white p-5 shadow focus-within:ring-2 focus-within:ring-emerald-500"
+          className={`min-w-0 rounded-2xl border bg-white p-5 shadow focus-within:ring-2 focus-within:ring-emerald-500 ${
+            invalid ? "border-amber-300 bg-amber-50" : ""
+          }`}
         >
           <header id={titleId} className="text-[11px] uppercase tracking-wide text-gray-500">
             {title}
           </header>
-          <div
-            className={`mt-1 min-w-0 font-semibold leading-tight ${STATE_STYLES[state]}`}
-          >
+
+          <div className={`mt-1 min-w-0 font-semibold leading-tight ${STATE_STYLES[state]}`}>
             <span
               className="block max-w-full truncate text-2xl tabular-nums sm:text-3xl"
-              title={value === "—" ? undefined : value}
+              title={tooltip ?? (value === "—" ? undefined : value)}
             >
               {value}
             </span>
+
+            {invalid && key === "van" && (
+              <span className="mt-2 inline-flex items-center rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-amber-700">
+                Datos inválidos
+              </span>
+            )}
           </div>
+
           <div className="mt-3 h-px w-full bg-gray-100" />
+
           <footer
             id={`${titleId}-desc`}
-            className="mt-2 break-words text-xs text-gray-500"
-            aria-label={`Estado ${title}: ${state === "unknown" ? "sin dato" : STATE_TEXT[state]}`}
+            className={`mt-2 break-words text-xs ${
+              invalid ? "text-amber-700" : "text-gray-500"
+            }`}
+            aria-label={`Estado ${title}: ${
+              invalid ? "Corrige entradas" : state === "unknown" ? "sin dato" : STATE_TEXT[state]
+            }`}
           >
-            {STATE_TEXT[state]}
+            {invalid ? "Corrige entradas" : STATE_TEXT[state]}
           </footer>
+
           <p className="sr-only">{description}</p>
         </article>
       ))}
